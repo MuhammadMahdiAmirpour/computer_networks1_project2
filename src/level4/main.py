@@ -1,77 +1,94 @@
 import numpy as np
-import scipy.io.wavfile as wav
-import sounddevice as sd
 import matplotlib.pyplot as plt
+from scipy.io import wavfile
 
-step_size = 0.1
-
-def multiply_volume(data, n):
+def delta_modulation(signal, step_size):
     """
-    Doubles the volume of the audio data by the specified factor.
+    Perform delta modulation on a given signal.
     
-    Args:
-        data (numpy.ndarray): The audio data.
-        factor (int, optional): The factor by which to double the volume. Default is 1.
+    Parameters:
+    signal (np.array): The input audio signal.
+    step_size (float): The fixed step size for the modulation.
     
     Returns:
-        numpy.ndarray: The audio data with doubled volume.
+    np.array: The delta modulated binary signal.
+    np.array: The reconstructed signal from delta modulation.
     """
-    return data * n
-
-def save_wav(filename, data, samplerate):
-    wav.write(filename, samplerate, data)
-
-def play_audio(data, samplerate):
-    sd.play(data, samplerate)
-    sd.wait()
-
-def plot_data(input_data):
-    num = len(input_data)
-    _, ax = plt.subplots(num, 1, figsize=(8, 6))
-    x = np.linspace(1, 100, data.shape[0])
-    for i in range(num):
-        ax[i].plot(x, input_data[i])
-    plt.show()
-
-def plot_data(input_data):
-    num = len(input_data)
-    _, ax = plt.subplots(num, 1, figsize=(8, 6))
-    x = np.linspace(0, len(input_data[0]), 500)
-    for i in range(num):
-        ax[i].plot(x, input_data[i][:500])
-    plt.show()
-
-
-
-def main(data, sampling_rate):
-    data_list = list()
-    bitstream_list = list()
-    decoded_audio_list = list()
-    
-    for i in np.arange(-2, 4.1, 1).tolist():
-        if i != 0:
-            multiplied_data = multiply_volume(data, i)
-            data_list.append(multiplied_data)
+    # Ensure the signal is one-dimensional (convert stereo to mono if necessary)
+    if signal.ndim == 2:
+        num_channels = signal.shape[1]
+        binary_output = np.zeros_like(signal)
+        reconstructed_signal = np.zeros_like(signal)
+        
+        for channel in range(num_channels):
+            # Initialize the variables
+            N = signal.shape[0]
+            reconstructed_signal[0, channel] = signal[0, channel]
             
-            # Perform delta modulation
-            decoded_audio, bitstream, sampling_rate = delta_modulation(sampling_rate, data)
-            decoded_audio_list.append(decoded_audio)
-            bitstream_list.append(bitstream_list)
-            
-            play_audio(multiplied_data, sampling_rate)
-            print(f"Playing audio with volume multiplied by {i}")
-
-    # Optionally plot the delta-modulated signals
-    plot_data(decoded_audio_list)
-    plot_data(bitstream_list)
-
-    # Optionally save the delta-modulated signals to .wav files
-    for i, dm_signal in enumerate(decoded_audio_list):
-        save_wav(f"dm_signal_volume_multiplied_by_{-2 + i*1}.wav", dm_signal, sampling_rate)
-
-if __name__ == "__main__":
-    # Read the audio file
-    sampling_rate, data = wav.read('../../resources/voice1.wav')
+            # Delta modulation process
+            for i in range(1, N):
+                if signal[i, channel] > reconstructed_signal[i - 1, channel]:
+                    binary_output[i, channel] = 1
+                    reconstructed_signal[i, channel] = reconstructed_signal[i - 1, channel] + step_size
+                else:
+                    binary_output[i, channel] = 0
+                    reconstructed_signal[i, channel] = reconstructed_signal[i - 1, channel] - step_size
+    else:
+        N = len(signal)
+        binary_output = np.zeros(N)
+        reconstructed_signal = np.zeros(N)
+        reconstructed_signal[0] = signal[0]
+        
+        # Delta modulation process
+        for i in range(1, N):
+            if signal[i] > reconstructed_signal[i - 1]:
+                binary_output[i] = 1
+                reconstructed_signal[i] = reconstructed_signal[i - 1] + step_size
+            else:
+                binary_output[i] = 0
+                reconstructed_signal[i] = reconstructed_signal[i - 1] - step_size
     
-    # Call the main function with the audio data and sampling rate
-    main(data, sampling_rate)
+    return binary_output, reconstructed_signal
+
+# Read the audio file
+sampling_rate, data = wavfile.read('resources/voice1.wav')
+
+# Normalize the data
+data = data / np.max(np.abs(data))
+
+# Set the step size
+step_size = 0.05
+
+# Perform delta modulation
+binary_output, reconstructed_signal = delta_modulation(data, step_size)
+wavfile.write("src/level4/dm_output.wav", sampling_rate, reconstructed_signal)
+
+# Plot the original and reconstructed signals
+plt.figure(figsize=(15, 12))
+
+# Original signal (left channel)
+plt.subplot(4, 1, 1)
+plt.plot(data[:, 0], label='Original Signal (Left Channel)')
+plt.title('Original Signal (Left Channel)')
+plt.legend()
+
+# Reconstructed signal (left channel)
+plt.subplot(4, 1, 2)
+plt.plot(reconstructed_signal[:, 0], label='Reconstructed Signal (Left Channel)', color='orange')
+plt.title('Reconstructed Signal from Delta Modulation (Left Channel)')
+plt.legend()
+
+# Original signal (right channel)
+plt.subplot(4, 1, 3)
+plt.plot(data[:, 1], label='Original Signal (Right Channel)')
+plt.title('Original Signal (Right Channel)')
+plt.legend()
+
+# Reconstructed signal (right channel)
+plt.subplot(4, 1, 4)
+plt.plot(reconstructed_signal[:, 1], label='Reconstructed Signal (Right Channel)', color='orange')
+plt.title('Reconstructed Signal from Delta Modulation (Right Channel)')
+plt.legend()
+
+plt.tight_layout()
+plt.show()
